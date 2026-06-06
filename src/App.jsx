@@ -70,9 +70,12 @@ function TopicCard({ topic }) {
     setState("loading");
     setExpanded(false);
     try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+     const controller = new AbortController();
+const timeout = setTimeout(() => controller.abort(), 30000);
+const res = await fetch("/api/chat", {
+  signal: controller.signal,
+  method: "POST",
+  headers: { "Content-Type": "application/json"},
         body: JSON.stringify({
           model: "claude-sonnet-4-5",
           max_tokens: 1000,
@@ -81,6 +84,7 @@ function TopicCard({ topic }) {
         }),
       });
       const data = await res.json();
+      clearTimeout(timeout);
       const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
       setContent(text || "Sin resultado.");
       setState("done");
