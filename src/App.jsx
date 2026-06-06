@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 
 const DEFAULT_TOPICS = [
   {
@@ -60,11 +60,12 @@ function BulletContent({ text }) {
   );
 }
 
-function TopicCard({ topic }) {
+function TopicCard({ topic, autoFetch, onDone }) {
   const [state, setState] = useState("idle");
   const [content, setContent] = useState("");
   const [expanded, setExpanded] = useState(false);
   const [ts, setTs] = useState(null);
+  const hasAutoFetched = useRef(false);
 
   const handleFetch = useCallback(async () => {
     setState("loading");
@@ -101,8 +102,17 @@ function TopicCard({ topic }) {
         setContent("Error al consultar la API. Intenta de nuevo.");
       }
       setState("error");
+    } finally {
+      if (onDone) onDone();
     }
-  }, [topic]);
+  }, [topic, onDone]);
+
+  useEffect(() => {
+    if (autoFetch && !hasAutoFetched.current) {
+      hasAutoFetched.current = true;
+      handleFetch();
+    }
+  }, [autoFetch, handleFetch]);
 
   return (
     <div className={`card ${state}`}>
@@ -111,10 +121,15 @@ function TopicCard({ topic }) {
           <span className="topic-icon">{topic.icon}</span>
           <span className="topic-label">{topic.label}</span>
           {ts && <span className="ts">{ts.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}</span>}
+          {state === "loading" && <span className="ts">Buscando...</span>}
         </div>
         <div className="card-actions">
           {state === "done" && <button className="btn-icon">{expanded ? "▲" : "▼"}</button>}
-          <button className={`btn-fetch ${state}`} onClick={(e) => { e.stopPropagation(); handleFetch(); }} disabled={state === "loading"}>
+          <button
+            className={`btn-fetch ${state}`}
+            onClick={(e) => { e.stopPropagation(); hasAutoFetched.current = true; handleFetch(); }}
+            disabled={state === "loading"}
+          >
             {state === "loading" ? <Spinner /> : state === "done" ? "↻ Actualizar" : "Obtener"}
           </button>
         </div>
@@ -128,7 +143,25 @@ function TopicCard({ topic }) {
 
 export default function App() {
   const [topics] = useState(DEFAULT_TOPICS);
-  const [fetchAll, setFetchAll] = useState(0);
+  const [currentAutoIndex, setCurrentAutoIndex] = useState(-1);
+  const [isRunningAll, setIsRunningAll] = useState(false);
+  const [resetKey, setResetKey] = useState(0);
+
+  const handleActualizarTodo = () => {
+    setResetKey((k) => k + 1);
+    setCurrentAutoIndex(0);
+    setIsRunningAll(true);
+  };
+
+  const handleTopicDone = useCallback((index) => {
+    if (index < topics.length - 1) {
+      setCurrentAutoIndex(index + 1);
+    } else {
+      setCurrentAutoIndex(-1);
+      setIsRunningAll(false);
+    }
+  }, [topics.length]);
+
   const now = new Date().toLocaleDateString("es-CO", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 
   return (
@@ -146,9 +179,11 @@ export default function App() {
         .masthead-right { text-align: right; font-size: 0.78rem; color: var(--muted); font-style: italic; line-height: 1.6; }
         .tagline { font-size: 0.72rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px; }
         .main { max-width: 860px; margin: 0 auto; padding: 32px 24px 64px; }
-        .toolbar { display: flex; justify-content: flex-end; margin-bottom: 28px; }
+        .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; }
+        .toolbar-status { font-size: 0.78rem; color: var(--muted); font-style: italic; }
         .btn-all { font-family: 'Source Serif 4', serif; font-size: 0.82rem; letter-spacing: 0.12em; text-transform: uppercase; background: var(--ink); color: var(--paper); border: none; padding: 10px 22px; cursor: pointer; transition: background 0.2s; }
-        .btn-all:hover { background: var(--accent); }
+        .btn-all:hover:not(:disabled) { background: var(--accent); }
+        .btn-all:disabled { opacity: 0.5; cursor: default; }
         .cards { display: flex; flex-direction: column; gap: 16px; }
         .card { background: var(--card-bg); border: 1px solid var(--border); border-left: 4px solid var(--border); transition: border-left-color 0.3s; }
         .card.loading { border-left-color: var(--gold); }
@@ -192,11 +227,21 @@ export default function App() {
       </header>
       <main className="main">
         <div className="toolbar">
-          <button className="btn-all" onClick={() => setFetchAll((n) => n + 1)}>↻ Actualizar todo</button>
+          <span className="toolbar-status">
+            {isRunningAll ? `Actualizando sección ${currentAutoIndex + 1} de ${topics.length}...` : ""}
+          </span>
+          <button className="btn-all" onClick={handleActualizarTodo} disabled={isRunningAll}>
+            {isRunningAll ? <Spinner /> : "↻ Actualizar todo"}
+          </button>
         </div>
         <div className="cards">
-          {topics.map((topic) => (
-            <TopicCard key={`${topic.id}-${fetchAll}`} topic={topic} />
+          {topics.map((topic, index) => (
+            <TopicCard
+              key={`${topic.id}-${resetKey}`}
+              topic={topic}
+              autoFetch={currentAutoIndex === index}
+              onDone={() => handleTopicDone(index)}
+            />
           ))}
         </div>
         <div className="footer">Fuentes consultadas: El Tiempo, Semana, El Espectador, Bloomberg, Reuters, AP, FT, WSJ, BBC Mundo, El País</div>
