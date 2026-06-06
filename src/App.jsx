@@ -5,29 +5,25 @@ const DEFAULT_TOPICS = [
     id: "col-politica",
     label: "Colombia · Política & Gobierno",
     icon: "🇨🇴",
-    prompt:
-      "Busca y resume las noticias más importantes de HOY sobre política y gobierno en Colombia, incluyendo el gobierno Petro, reformas legislativas, Decreto 0415 fondos pensionales / Colpensiones, y negociaciones de paz. Usa solo fuentes reconocidas (El Tiempo, Semana, El Espectador, Bloomberg, Reuters, AP). Responde en español.",
+    prompt: "Busca y resume las noticias más importantes de HOY sobre política y gobierno en Colombia, incluyendo el gobierno Petro, reformas legislativas, Decreto 0415 fondos pensionales / Colpensiones, y negociaciones de paz. Usa solo fuentes reconocidas (El Tiempo, Semana, El Espectador, Bloomberg, Reuters, AP). Responde en español.",
   },
   {
     id: "col-economia",
     label: "Colombia · Economía & Mercados",
     icon: "📊",
-    prompt:
-      "Busca y resume las noticias más importantes de HOY sobre la economía colombiana: TRM peso/dólar, bolsa de valores, inflación, política monetaria del Banco de la República, calificaciones de riesgo, y perspectivas de JPMorgan, BTG Pactual, Goldman Sachs u otras casas de análisis sobre Colombia. Usa solo fuentes reconocidas. Responde en español.",
+    prompt: "Busca y resume las noticias más importantes de HOY sobre la economía colombiana: TRM peso/dólar, bolsa de valores, inflación, política monetaria del Banco de la República, calificaciones de riesgo, y perspectivas de JPMorgan, BTG Pactual, Goldman Sachs u otras casas de análisis sobre Colombia. Usa solo fuentes reconocidas. Responde en español.",
   },
   {
     id: "latam",
     label: "Latinoamérica · Regional",
     icon: "🌎",
-    prompt:
-      "Busca y resume las noticias más relevantes de HOY en América Latina: política, economía, elecciones y tensiones regionales en Venezuela, Argentina, México, Brasil y otros países relevantes. Usa solo fuentes reconocidas (Reuters, AP, Bloomberg, El País, BBC Mundo). Responde en español.",
+    prompt: "Busca y resume las noticias más relevantes de HOY en América Latina: política, economía, elecciones y tensiones regionales en Venezuela, Argentina, México, Brasil y otros países relevantes. Usa solo fuentes reconocidas (Reuters, AP, Bloomberg, El País, BBC Mundo). Responde en español.",
   },
   {
     id: "mundo",
     label: "Mundo · Geopolítica & Economía",
     icon: "🌐",
-    prompt:
-      "Busca y resume las noticias geopolíticas y económicas más importantes del mundo HOY: conflictos activos, decisiones de la Fed/BCE, mercados globales, relaciones internacionales y grandes tendencias. Usa solo fuentes reconocidas (Reuters, AP, Bloomberg, FT, NYT, WSJ). Responde en español.",
+    prompt: "Busca y resume las noticias geopolíticas y económicas más importantes del mundo HOY: conflictos activos, decisiones de la Fed/BCE, mercados globales, relaciones internacionales y grandes tendencias. Usa solo fuentes reconocidas (Reuters, AP, Bloomberg, FT, NYT, WSJ). Responde en español.",
   },
 ];
 
@@ -60,47 +56,47 @@ function BulletContent({ text }) {
   );
 }
 
-function TopicCard({ topic, autoFetch, onDone }) {
+async function fetchTopic(topic) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 55000);
+  const res = await fetch("/api/chat", {
+    signal: controller.signal,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-5",
+      max_tokens: 1500,
+      tools: [{ type: "web_search_20250305", name: "web_search" }],
+      messages: [{ role: "user", content: topic.prompt }],
+    }),
+  });
+  clearTimeout(timeout);
+  const data = await res.json();
+  const text = (data.content || [])
+    .filter((b) => b.type === "text" && b.text && b.text.trim().length > 0)
+    .map((b) => b.text)
+    .join("\n")
+    .trim();
+  return text || "Sin resultado. Intenta de nuevo.";
+}
+
+function TopicCard({ topic, triggerFetch, onDone }) {
   const [state, setState] = useState("idle");
   const [content, setContent] = useState("");
   const [expanded, setExpanded] = useState(false);
   const [ts, setTs] = useState(null);
-  const hasAutoFetched = useRef(false);
 
-  const handleFetch = useCallback(async () => {
+  const doFetch = useCallback(async () => {
     setState("loading");
     setExpanded(false);
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 55000);
-      const res = await fetch("/api/chat", {
-        signal: controller.signal,
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-5",
-          max_tokens: 1500,
-          tools: [{ type: "web_search_20250305", name: "web_search" }],
-          messages: [{ role: "user", content: topic.prompt }],
-        }),
-      });
-      clearTimeout(timeout);
-      const data = await res.json();
-      const text = (data.content || [])
-        .filter((b) => b.type === "text" && b.text && b.text.trim().length > 0)
-        .map((b) => b.text)
-        .join("\n")
-        .trim();
-      setContent(text || "Sin resultado. Intenta de nuevo.");
+      const text = await fetchTopic(topic);
+      setContent(text);
       setState("done");
       setExpanded(true);
       setTs(new Date());
     } catch (err) {
-      if (err.name === "AbortError") {
-        setContent("Tiempo de espera agotado. Intenta de nuevo.");
-      } else {
-        setContent("Error al consultar la API. Intenta de nuevo.");
-      }
+      setContent(err.name === "AbortError" ? "Tiempo agotado. Intenta de nuevo." : "Error al consultar la API.");
       setState("error");
     } finally {
       if (onDone) onDone();
@@ -108,11 +104,10 @@ function TopicCard({ topic, autoFetch, onDone }) {
   }, [topic, onDone]);
 
   useEffect(() => {
-    if (autoFetch && !hasAutoFetched.current) {
-      hasAutoFetched.current = true;
-      handleFetch();
+    if (triggerFetch > 0) {
+      doFetch();
     }
-  }, [autoFetch, handleFetch]);
+  }, [triggerFetch]);
 
   return (
     <div className={`card ${state}`}>
@@ -120,14 +115,14 @@ function TopicCard({ topic, autoFetch, onDone }) {
         <div className="card-meta">
           <span className="topic-icon">{topic.icon}</span>
           <span className="topic-label">{topic.label}</span>
-          {ts && <span className="ts">{ts.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}</span>}
           {state === "loading" && <span className="ts">Buscando...</span>}
+          {ts && state !== "loading" && <span className="ts">{ts.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}</span>}
         </div>
         <div className="card-actions">
           {state === "done" && <button className="btn-icon">{expanded ? "▲" : "▼"}</button>}
           <button
             className={`btn-fetch ${state}`}
-            onClick={(e) => { e.stopPropagation(); hasAutoFetched.current = true; handleFetch(); }}
+            onClick={(e) => { e.stopPropagation(); doFetch(); }}
             disabled={state === "loading"}
           >
             {state === "loading" ? <Spinner /> : state === "done" ? "↻ Actualizar" : "Obtener"}
@@ -142,25 +137,36 @@ function TopicCard({ topic, autoFetch, onDone }) {
 }
 
 export default function App() {
-  const [topics] = useState(DEFAULT_TOPICS);
-  const [currentAutoIndex, setCurrentAutoIndex] = useState(-1);
+  const [triggerList, setTriggerList] = useState([0, 0, 0, 0]);
+  const [currentIndex, setCurrentIndex] = useState(-1);
   const [isRunningAll, setIsRunningAll] = useState(false);
-  const [resetKey, setResetKey] = useState(0);
+  const queueRef = useRef([]);
+
+  const runNext = useCallback(() => {
+    if (queueRef.current.length === 0) {
+      setIsRunningAll(false);
+      setCurrentIndex(-1);
+      return;
+    }
+    const nextIndex = queueRef.current.shift();
+    setCurrentIndex(nextIndex);
+    setTriggerList((prev) => {
+      const next = [...prev];
+      next[nextIndex] = next[nextIndex] + 1;
+      return next;
+    });
+  }, []);
 
   const handleActualizarTodo = () => {
-    setResetKey((k) => k + 1);
-    setCurrentAutoIndex(0);
+    if (isRunningAll) return;
+    queueRef.current = [0, 1, 2, 3];
     setIsRunningAll(true);
+    runNext();
   };
 
-  const handleTopicDone = useCallback((index) => {
-    if (index < topics.length - 1) {
-      setCurrentAutoIndex(index + 1);
-    } else {
-      setCurrentAutoIndex(-1);
-      setIsRunningAll(false);
-    }
-  }, [topics.length]);
+  const handleDone = useCallback(() => {
+    setTimeout(() => runNext(), 500);
+  }, [runNext]);
 
   const now = new Date().toLocaleDateString("es-CO", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 
@@ -181,7 +187,7 @@ export default function App() {
         .main { max-width: 860px; margin: 0 auto; padding: 32px 24px 64px; }
         .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; }
         .toolbar-status { font-size: 0.78rem; color: var(--muted); font-style: italic; }
-        .btn-all { font-family: 'Source Serif 4', serif; font-size: 0.82rem; letter-spacing: 0.12em; text-transform: uppercase; background: var(--ink); color: var(--paper); border: none; padding: 10px 22px; cursor: pointer; transition: background 0.2s; }
+        .btn-all { font-family: 'Source Serif 4', serif; font-size: 0.82rem; letter-spacing: 0.12em; text-transform: uppercase; background: var(--ink); color: var(--paper); border: none; padding: 10px 22px; cursor: pointer; transition: background 0.2s; display: flex; align-items: center; gap: 8px; }
         .btn-all:hover:not(:disabled) { background: var(--accent); }
         .btn-all:disabled { opacity: 0.5; cursor: default; }
         .cards { display: flex; flex-direction: column; gap: 16px; }
@@ -228,19 +234,19 @@ export default function App() {
       <main className="main">
         <div className="toolbar">
           <span className="toolbar-status">
-            {isRunningAll ? `Actualizando sección ${currentAutoIndex + 1} de ${topics.length}...` : ""}
+            {isRunningAll ? `Actualizando sección ${currentIndex + 1} de ${DEFAULT_TOPICS.length}...` : ""}
           </span>
           <button className="btn-all" onClick={handleActualizarTodo} disabled={isRunningAll}>
-            {isRunningAll ? <Spinner /> : "↻ Actualizar todo"}
+            {isRunningAll ? <><Spinner /> Actualizando...</> : "↻ Actualizar todo"}
           </button>
         </div>
         <div className="cards">
-          {topics.map((topic, index) => (
+          {DEFAULT_TOPICS.map((topic, index) => (
             <TopicCard
-              key={`${topic.id}-${resetKey}`}
+              key={topic.id}
               topic={topic}
-              autoFetch={currentAutoIndex === index}
-              onDone={() => handleTopicDone(index)}
+              triggerFetch={triggerList[index]}
+              onDone={handleDone}
             />
           ))}
         </div>
