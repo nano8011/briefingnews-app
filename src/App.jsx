@@ -70,28 +70,36 @@ function TopicCard({ topic }) {
     setState("loading");
     setExpanded(false);
     try {
-     const controller = new AbortController();
-const timeout = setTimeout(() => controller.abort(), 30000);
-const res = await fetch("/api/chat", {
-  signal: controller.signal,
-  method: "POST",
-  headers: { "Content-Type": "application/json"},
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 55000);
+      const res = await fetch("/api/chat", {
+        signal: controller.signal,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: "claude-sonnet-4-5",
-          max_tokens: 1000,
+          max_tokens: 1500,
           tools: [{ type: "web_search_20250305", name: "web_search" }],
           messages: [{ role: "user", content: topic.prompt }],
         }),
       });
-      const data = await res.json();
       clearTimeout(timeout);
-      const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
-      setContent(text || "Sin resultado.");
+      const data = await res.json();
+      const text = (data.content || [])
+        .filter((b) => b.type === "text" && b.text && b.text.trim().length > 0)
+        .map((b) => b.text)
+        .join("\n")
+        .trim();
+      setContent(text || "Sin resultado. Intenta de nuevo.");
       setState("done");
       setExpanded(true);
       setTs(new Date());
-    } catch {
-      setContent("Error al consultar la API.");
+    } catch (err) {
+      if (err.name === "AbortError") {
+        setContent("Tiempo de espera agotado. Intenta de nuevo.");
+      } else {
+        setContent("Error al consultar la API. Intenta de nuevo.");
+      }
       setState("error");
     }
   }, [topic]);
